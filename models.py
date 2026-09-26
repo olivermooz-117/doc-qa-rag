@@ -1,73 +1,28 @@
-import os
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from dotenv import load_dotenv
+from flask_sqlalchemy import SQLAlchemy
+from pgvector.sqlalchemy import Vector
+import datetime
 
-load_dotenv()
+db = SQLAlchemy()
 
-from models import db, Document, Chunk
-from services.ingest import ingest_document
-
-UPLOAD_DIR = "uploads"
+# Gemini's text-embedding-004 model outputs 768-dimensional vectors.
+EMBEDDING_DIM = 768
 
 
-def create_app():
-    app = Flask(__name__)
-    CORS(app)
+class Document(db.Model):
+    __tablename__ = "documents"
 
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ["DATABASE_URL"]
-    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    id = db.Column(db.Integer, primary_key=True)
+    filename = db.Column(db.String(255), nullable=False)
+    uploaded_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
-    db.init_app(app)
-
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-    with app.app_context():
-        # Requires the pgvector extension to already exist in the database:
-        #   CREATE EXTENSION IF NOT EXISTS vector;
-        db.create_all()
-
-    @app.route("/api/documents", methods=["GET"])
-    def list_documents():
-        docs = Document.query.order_by(Document.uploaded_at.desc()).all()
-        return jsonify([
-            {
-                "id": d.id,
-                "filename": d.filename,
-                "uploaded_at": d.uploaded_at.isoformat(),
-                "chunk_count": len(d.chunks),
-            }
-            for d in docs
-        ])
-
-    @app.route("/api/upload", methods=["POST"])
-    def upload():
-        if "file" not in request.files:
-            return jsonify({"error": "No file provided"}), 400
-
-        file = request.files["file"]
-        if file.filename == "":
-            return jsonify({"error": "Empty filename"}), 400
-        if not file.filename.lower().endswith(".pdf"):
-            return jsonify({"error": "Only PDF files are supported right now"}), 400
-
-        filepath = os.path.join(UPLOAD_DIR, file.filename)
-        file.save(filepath)
-
-        try:
-            doc, chunk_count = ingest_document(filepath, file.filename, db, Document, Chunk)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
-        return jsonify({
-            "id": doc.id,
-            "filename": doc.filename,
-            "chunks_created": chunk_count,
-        }), 201
-
-    return app
+    chunks = db.relationship("Chunk", backref="document", cascade="all, delete-orphan")
 
 
-if __name__ == "__main__":
-    app = create_app()
-    app.run(debug=True, port=5001)
+class Chunk(db.Model):
+    __tablename__ = "chunks"
+
+    id = db.Column(db.Integer, primary_key=True)
+    document_id = db.Column(db.Integer, db.ForeignKey("documents.id"), nullable=False)
+    content = db.Column(db.Text, nullable=False)
+    chunk_index = db.Column(db.Integer, nullable=False)  # position within the document
+    embedding = db.Column(Vector(EMBEDDING_DIM), nullable=False)
