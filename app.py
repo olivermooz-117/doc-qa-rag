@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from models import db, Document, Chunk
-from services.ingest import ingest_document
+from ingest import ingest_document
 
 UPLOAD_DIR = "uploads"
 
