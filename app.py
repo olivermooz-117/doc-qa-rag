@@ -7,6 +7,7 @@ load_dotenv()
 
 from models import db, Document, Chunk
 from ingest import ingest_document
+from retrieve import answer_question
 
 UPLOAD_DIR = "uploads"
 
@@ -64,6 +65,20 @@ def create_app():
             "filename": doc.filename,
             "chunks_created": chunk_count,
         }), 201
+
+    @app.route("/api/ask", methods=["POST"])
+    def ask():
+        data = request.get_json(silent=True) or {}
+        question = data.get("question", "").strip()
+        if not question:
+            return jsonify({"error": "No question provided"}), 400
+
+        try:
+            answer, sources = answer_question(question, db, Chunk)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+        return jsonify({"answer": answer, "sources": sources})
 
     return app
 
