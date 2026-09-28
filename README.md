@@ -389,6 +389,16 @@ The test suite includes:
 
 Gemini calls are mocked in tests so the test suite does not require a production Gemini API key.
 
+Run frontend tests and checks from the `frontend` directory:
+
+```bash
+npm test
+npm run lint
+npm run build
+```
+
+The frontend tests cover API request/response handling and the document upload, question, and source-display workflow.
+
 ## CI
 
 GitHub Actions runs automatically on pushes and pull requests.

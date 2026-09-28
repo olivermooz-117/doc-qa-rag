@@ -1,7 +1,7 @@
 import io
 from unittest.mock import patch
 
-from app import MAX_QUESTION_LENGTH
+from app import MAX_QUESTION_LENGTH, create_app
 from models import Document, db
 
 
@@ -21,6 +21,54 @@ def test_readiness(client):
 
     assert data["status"] == "ready"
     assert data["database"] == "ok"
+
+
+def test_upload_size_limit_uses_environment_setting(
+    monkeypatch,
+    test_database_url,
+):
+    monkeypatch.setenv("DATABASE_URL", test_database_url)
+    monkeypatch.setenv("MAX_UPLOAD_MB", "1")
+
+    with patch("app.db.create_all"):
+        configured_app = create_app()
+
+    assert configured_app.config["MAX_CONTENT_LENGTH"] == 1024 * 1024
+
+    response = configured_app.test_client().post(
+        "/api/upload",
+        data=b"x" * (1024 * 1024 + 1),
+        content_type="application/octet-stream",
+    )
+
+    assert response.status_code == 413
+    assert response.get_json() == {
+        "error": "file_too_large",
+        "message": "Uploaded file exceeds the 1 MB limit.",
+    }
+
+
+def test_cors_uses_configured_origins(monkeypatch, test_database_url):
+    monkeypatch.setenv("DATABASE_URL", test_database_url)
+    monkeypatch.setenv(
+        "CORS_ORIGINS",
+        "https://docs.example, https://admin.example",
+    )
+
+    with patch("app.db.create_all"):
+        configured_app = create_app()
+
+    response = configured_app.test_client().options(
+        "/api/upload",
+        headers={
+            "Origin": "https://docs.example",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.headers["Access-Control-Allow-Origin"] == (
+        "https://docs.example"
+    )
 
 
 def test_documents_returns_empty_list(client):

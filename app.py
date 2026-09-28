@@ -20,21 +20,23 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
-MAX_UPLOAD_SIZE = MAX_UPLOAD_MB * 1024 * 1024
 MAX_QUESTION_LENGTH = 4000
 ALLOWED_EXTENSION = ".pdf"
 
 
 def create_app():
     app = Flask(__name__)
+    max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "10"))
+
+    if max_upload_mb < 1:
+        raise ValueError("MAX_UPLOAD_MB must be a positive integer")
 
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
         "DATABASE_URL",
         "postgresql://postgres:postgres@localhost:5432/docqa",
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
+    app.config["MAX_CONTENT_LENGTH"] = max_upload_mb * 1024 * 1024
 
     db.init_app(app)
 
@@ -64,7 +66,7 @@ def create_app():
         return jsonify(
             {
                 "error": "file_too_large",
-                "message": f"Uploaded file exceeds the {MAX_UPLOAD_MB} MB limit.",
+                "message": f"Uploaded file exceeds the {max_upload_mb} MB limit.",
             }
         ), 413
 
