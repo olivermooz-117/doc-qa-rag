@@ -4,7 +4,7 @@ import datetime
 
 db = SQLAlchemy()
 
-# Gemini's text-embedding-004 model outputs 768-dimensional vectors.
+# Gemini embeddings are requested at 768 dimensions to match the pgvector column.
 EMBEDDING_DIM = 768
 
 

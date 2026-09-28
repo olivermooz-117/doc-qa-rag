@@ -3,6 +3,6 @@ flask-sqlalchemy
 flask-cors
 psycopg2-binary
 pgvector
-google-generativeai
+google-genai
 pypdf
 python-dotenv

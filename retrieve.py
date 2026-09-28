@@ -1,11 +1,13 @@
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from sqlalchemy import select
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-EMBEDDING_MODEL = "models/text-embedding-004"
-GENERATION_MODEL = "gemini-2.0-flash"
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIM = 768
+GENERATION_MODEL = "gemini-3.8-flash"
 TOP_K = 4  # how many chunks to retrieve per question
 
 
@@ -13,12 +15,15 @@ def embed_query(text):
     """Embed the user's question. Note task_type differs from ingest.py's
     'retrieval_document' — Gemini's embedding model performs better when you
     tell it which side of the query/document pair a given piece of text is."""
-    result = genai.embed_content(
+    result = client.models.embed_content(
         model=EMBEDDING_MODEL,
-        content=text,
-        task_type="retrieval_query",
+        contents=text,
+        config=types.EmbedContentConfig(
+            task_type="RETRIEVAL_QUERY",
+            output_dimensionality=EMBEDDING_DIM,
+        ),
     )
-    return result["embedding"]
+    return result.embeddings[0].values
 
 
 def retrieve_chunks(question, db, Chunk, top_k=TOP_K):
@@ -59,8 +64,10 @@ Question: {question}
 
 Answer:"""
 
-    model = genai.GenerativeModel(GENERATION_MODEL)
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model=GENERATION_MODEL,
+        contents=prompt,
+    )
 
     sources = [
         {"document": c.document.filename, "chunk_index": c.chunk_index, "content": c.content}

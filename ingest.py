@@ -1,10 +1,12 @@
 import os
 from pypdf import PdfReader
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
-EMBEDDING_MODEL = "models/text-embedding-004"
+EMBEDDING_MODEL = "gemini-embedding-001"
+EMBEDDING_DIM = 768
 CHUNK_SIZE = 800       # characters per chunk — small enough for focused retrieval,
 CHUNK_OVERLAP = 150    # large enough for a sentence or two of context. Overlap avoids
                         # cutting a relevant sentence exactly at a chunk boundary.
@@ -35,12 +37,15 @@ def chunk_text(text, chunk_size=CHUNK_SIZE, overlap=CHUNK_OVERLAP):
 
 def embed_text(text):
     """Get a single embedding vector for a piece of text via Gemini."""
-    result = genai.embed_content(
+    result = client.models.embed_content(
         model=EMBEDDING_MODEL,
-        content=text,
-        task_type="retrieval_document",
+        contents=text,
+        config=types.EmbedContentConfig(
+            task_type="RETRIEVAL_DOCUMENT",
+            output_dimensionality=EMBEDDING_DIM,
+        ),
     )
-    return result["embedding"]
+    return result.embeddings[0].values
 
 
 def ingest_document(filepath, filename, db, Document, Chunk):
