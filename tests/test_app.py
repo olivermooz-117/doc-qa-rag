@@ -225,6 +225,7 @@ def test_upload_success(mock_ingest, client):
     assert data["id"] == 1
     assert data["filename"] == "test.pdf"
     assert data["chunk_count"] == 1
+    assert data["chunks_created"] == 1
 
     mock_ingest.assert_called_once()
 

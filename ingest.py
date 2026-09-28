@@ -1,4 +1,3 @@
-
 import logging
 import os
 from pathlib import Path
@@ -102,7 +101,7 @@ def ingest_document(filepath, filename, db, Document, Chunk):
     Extract, chunk, embed, and persist a PDF.
 
     The database transaction is rolled back if any step fails.
-    Returns the persisted Document instance.
+    Returns (Document instance, number of chunks created).
     """
     try:
         if not Path(filepath).is_file():
@@ -143,7 +142,7 @@ def ingest_document(filepath, filename, db, Document, Chunk):
             chunk_index,
         )
 
-        return document
+        return document, chunk_index
 
     except Exception:
         db.session.rollback()

@@ -104,7 +104,7 @@ def test_ingestion_persists_page_aware_chunks(
                 return_value=fake_embedding,
             ):
                 with app.app_context():
-                    document = ingest_document(
+                    document, chunk_count = ingest_document(
                         str(pdf_path),
                         "test.pdf",
                         db,
@@ -114,6 +114,7 @@ def test_ingestion_persists_page_aware_chunks(
 
                     assert document.id is not None
                     assert document.filename == "test.pdf"
+                    assert chunk_count == 2
 
                     chunks = (
                         Chunk.query

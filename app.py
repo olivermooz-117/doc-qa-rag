@@ -20,7 +20,8 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
+MAX_UPLOAD_SIZE = MAX_UPLOAD_MB * 1024 * 1024
 MAX_QUESTION_LENGTH = 4000
 ALLOWED_EXTENSION = ".pdf"
 
@@ -37,14 +38,20 @@ def create_app():
 
     db.init_app(app)
 
+    cors_origins = [
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ORIGINS",
+            "http://localhost:5173,http://127.0.0.1:5173",
+        ).split(",")
+        if origin.strip()
+    ]
+
     CORS(
         app,
         resources={
             r"/api/*": {
-                "origins": [
-                    "http://localhost:5173",
-                    "http://127.0.0.1:5173",
-                ]
+                "origins": cors_origins,
             }
         },
     )
@@ -57,7 +64,7 @@ def create_app():
         return jsonify(
             {
                 "error": "file_too_large",
-                "message": "Uploaded file exceeds the 10 MB limit.",
+                "message": f"Uploaded file exceeds the {MAX_UPLOAD_MB} MB limit.",
             }
         ), 413
 
@@ -220,6 +227,7 @@ def create_app():
                             else None
                         ),
                         "chunk_count": chunk_count,
+                        "chunks_created": chunk_count,
                     }
                 ), 201
 
