@@ -1,83 +1,223 @@
+import logging
 import os
+
 from google import genai
 from google.genai import types
+
 from sqlalchemy import select
 
-client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+from models import db, Chunk, Document
+
+logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = "gemini-embedding-001"
-EMBEDDING_DIM = 768
-GENERATION_MODEL = "gemini-3.8-flash"
-TOP_K = 4  # how many chunks to retrieve per question
+EMBEDDING_DIMENSIONS = 768
+
+# Keep this configurable so the model can be changed without editing code.
+GENERATION_MODEL = os.getenv(
+    "GEMINI_GENERATION_MODEL",
+    "gemini-2.5-flash",
+)
+
+DEFAULT_TOP_K = 5
+MAX_TOP_K = 20
 
 
-def embed_query(text):
-    """Embed the user's question. Note task_type differs from ingest.py's
-    'retrieval_document' — Gemini's embedding model performs better when you
-    tell it which side of the query/document pair a given piece of text is."""
-    result = client.models.embed_content(
+def get_gemini_client():
+    """Create a Gemini client using the configured API key."""
+    api_key = os.getenv("GEMINI_API_KEY")
+
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+
+    return genai.Client(api_key=api_key)
+
+
+def embed_query(client, question):
+    """Generate an embedding for the user's question."""
+    response = client.models.embed_content(
         model=EMBEDDING_MODEL,
-        contents=text,
+        contents=question,
         config=types.EmbedContentConfig(
-            task_type="RETRIEVAL_QUERY",
-            output_dimensionality=EMBEDDING_DIM,
+            output_dimensionality=EMBEDDING_DIMENSIONS,
         ),
     )
-    return result.embeddings[0].values
+
+    if not response.embeddings:
+        raise RuntimeError("Gemini returned no query embedding")
+
+    embedding = response.embeddings[0].values
+
+    if not embedding or len(embedding) != EMBEDDING_DIMENSIONS:
+        raise RuntimeError("Gemini returned an invalid query embedding")
+
+    return embedding
 
 
-def retrieve_chunks(question, db, Chunk, top_k=TOP_K):
-    """Embed the question, then find the closest stored chunks by cosine distance.
-
-    pgvector's `<=>` operator computes cosine distance directly in SQL, so the
-    similarity search happens in the database rather than pulling every chunk
-    into Python and comparing vectors by hand.
+def retrieve_chunks(question, top_k=DEFAULT_TOP_K):
     """
-    query_embedding = embed_query(question)
+    Retrieve the most relevant document chunks using pgvector cosine distance.
+    """
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("Question must not be empty")
+
+    top_k = int(top_k)
+
+    if top_k < 1 or top_k > MAX_TOP_K:
+        raise ValueError(
+            f"top_k must be between 1 and {MAX_TOP_K}"
+        )
+
+    client = get_gemini_client()
+    query_embedding = embed_query(client, question.strip())
+
+    distance = Chunk.embedding.cosine_distance(query_embedding)
 
     stmt = (
-        select(Chunk)
-        .order_by(Chunk.embedding.cosine_distance(query_embedding))
+        select(Chunk, Document, distance.label("distance"))
+        .join(Document, Chunk.document_id == Document.id)
+        .order_by(distance)
         .limit(top_k)
     )
-    return db.session.execute(stmt).scalars().all()
+
+    results = db.session.execute(stmt).all()
+
+    return [
+        {
+            "chunk": chunk,
+            "document": document,
+            "distance": float(distance_value),
+        }
+        for chunk, document, distance_value in results
+    ]
 
 
-def generate_answer(question, chunks):
-    """Feed retrieved chunks + the question to Gemini, return a grounded answer."""
-    if not chunks:
-        return "No relevant content found in the uploaded documents.", []
+def build_context(results):
+    """Build a clearly labelled context block for Gemini."""
+    context_parts = []
 
-    context = "\n\n---\n\n".join(
-        f"[Source {i+1}, from {c.document.filename}]\n{c.content}"
-        for i, c in enumerate(chunks)
-    )
+    for index, result in enumerate(results, start=1):
+        chunk = result["chunk"]
+        document = result["document"]
 
-    prompt = f"""Answer the question using ONLY the sources below. If the sources
-don't contain enough information to answer, say so plainly rather than guessing.
-Cite which source number(s) you used.
+        page = chunk.page_number
 
-Sources:
+        context_parts.append(
+            f"[SOURCE {index}]\n"
+            f"Document: {document.filename}\n"
+            f"Page: {page}\n"
+            f"Chunk: {chunk.chunk_index}\n"
+            f"Content:\n{chunk.content}"
+        )
+
+    return "\n\n".join(context_parts)
+
+
+def build_sources(results):
+    """Return structured source information for the API response."""
+    sources = []
+
+    for index, result in enumerate(results, start=1):
+        chunk = result["chunk"]
+        document = result["document"]
+
+        sources.append(
+            {
+                "id": chunk.id,
+                "document_id": document.id,
+                "document": document.filename,
+                "page": chunk.page_number,
+                "chunk": chunk.chunk_index,
+                "content": chunk.content,
+                "distance": round(result["distance"], 6),
+                "citation": (
+                    f"{document.filename}, "
+                    f"page {chunk.page_number}"
+                ),
+            }
+        )
+
+    return sources
+
+
+def generate_answer(question, results):
+    """
+    Generate a grounded answer using only the retrieved context.
+    """
+    if not results:
+        return (
+            "I could not find relevant information in the uploaded "
+            "documents."
+        )
+
+    context = build_context(results)
+
+    prompt = f"""
+You are a document question-answering assistant.
+
+Answer the user's question using ONLY the information contained
+in the supplied document context.
+
+Rules:
+1. Do not invent facts.
+2. Do not use outside knowledge.
+3. If the context does not contain enough information, say so clearly.
+4. Keep the answer concise but useful.
+5. Cite supporting sources using [SOURCE N].
+6. Do not cite a source unless it actually supports the statement.
+7. When multiple sources support an answer, cite all relevant sources.
+
+Document context:
 {context}
 
-Question: {question}
+User question:
+{question}
+"""
 
-Answer:"""
+    client = get_gemini_client()
 
     response = client.models.generate_content(
         model=GENERATION_MODEL,
         contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=0.1,
+        ),
     )
 
-    sources = [
-        {"document": c.document.filename, "chunk_index": c.chunk_index, "content": c.content}
-        for c in chunks
-    ]
-    return response.text, sources
+    answer = getattr(response, "text", None)
+
+    if not answer:
+        raise RuntimeError("Gemini returned an empty answer")
+
+    return answer.strip()
 
 
-def answer_question(question, db, Chunk):
-    """Full pipeline: retrieve -> generate. What the /api/ask route calls."""
-    chunks = retrieve_chunks(question, db, Chunk)
-    answer, sources = generate_answer(question, chunks)
-    return answer, sources
+def ask_question(question, top_k=DEFAULT_TOP_K):
+    """
+    Complete RAG pipeline:
+
+    question
+        -> query embedding
+        -> vector retrieval
+        -> grounded generation
+        -> structured sources
+    """
+    question = question.strip() if isinstance(question, str) else ""
+
+    if not question:
+        raise ValueError("Question must not be empty")
+
+    results = retrieve_chunks(
+        question,
+        top_k=top_k,
+    )
+
+    answer = generate_answer(
+        question,
+        results,
+    )
+
+    return {
+        "answer": answer,
+        "sources": build_sources(results),
+    }
