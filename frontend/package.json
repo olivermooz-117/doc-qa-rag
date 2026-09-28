@@ -1,15 +1,16 @@
 {
-  "name": "frontend",
+  "name": "doc-qa-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
+    "lucide-react": "^0.468.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
@@ -18,6 +19,7 @@
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
+    "typescript": "^5.9.3",
     "vite": "^8.3.0"
   }
 }
