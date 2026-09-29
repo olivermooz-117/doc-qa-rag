@@ -66,3 +66,11 @@ export async function checkHealth(): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/health`)
   await readJson<{ status: string }>(response)
 }
+
+export async function deleteDocument(id: number): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/documents/${id}`, {
+    method: 'DELETE',
+  })
+
+  await readJson<{ message: string }>(response)
+}

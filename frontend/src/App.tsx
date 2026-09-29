@@ -9,13 +9,13 @@ import {
 } from 'react'
 import {
   ArrowUp,
-  Check,
   FileText,
   LibraryBig,
   LoaderCircle,
   MessageSquareText,
   Plus,
   Sparkles,
+  Trash2,
   Upload,
 } from 'lucide-react'
 import './App.css'
@@ -23,6 +23,7 @@ import './App.css'
 import {
   askQuestion,
   checkHealth,
+  deleteDocument,
   getDocuments,
   uploadDocument,
 } from './api/client'
@@ -102,7 +103,7 @@ function App() {
       const uploadedDocument: Document = {
         id: result.id,
         filename: result.filename,
-        chunk_count: result.chunks_created,
+        chunk_count: result.chunks_created ?? result.chunk_count,
         uploaded_at: new Date().toISOString(),
       }
 
@@ -115,7 +116,7 @@ function App() {
 
       setNotice({
         type: 'success',
-        text: `${result.filename} is ready · ${result.chunks_created} chunks`,
+        text: `${result.filename} is ready · ${result.chunks_created ?? result.chunk_count} chunks`,
       })
     } catch (error) {
       setApiStatus('offline')
@@ -130,6 +131,31 @@ function App() {
     } finally {
       setUploading(false)
       event.target.value = ''
+    }
+  }
+
+  async function handleDelete(documentId: number, filename: string) {
+    if (!window.confirm(`Delete "${filename}"? This cannot be undone.`)) {
+      return
+    }
+
+    try {
+      await deleteDocument(documentId)
+      setDocuments((current) =>
+        current.filter((doc) => doc.id !== documentId),
+      )
+      setNotice({
+        type: 'success',
+        text: `"${filename}" was deleted.`,
+      })
+    } catch (error) {
+      setNotice({
+        type: 'error',
+        text:
+          error instanceof Error
+            ? error.message
+            : 'Failed to delete the document.',
+      })
     }
   }
 
@@ -340,11 +366,17 @@ function App() {
                   </span>
                 </span>
 
-                <Check
-                  className="document-check"
-                  size={15}
-                  aria-label="Indexed"
-                />
+                <button
+                  type="button"
+                  className="icon-button delete-button"
+                  title="Delete document"
+                  aria-label={`Delete ${document.filename}`}
+                  onClick={() =>
+                    handleDelete(document.id, document.filename)
+                  }
+                >
+                  <Trash2 size={15} />
+                </button>
               </article>
             ))}
 

@@ -20,23 +20,21 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "10"))
+MAX_UPLOAD_SIZE = MAX_UPLOAD_MB * 1024 * 1024
 MAX_QUESTION_LENGTH = 4000
 ALLOWED_EXTENSION = ".pdf"
 
 
 def create_app():
     app = Flask(__name__)
-    max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "10"))
-
-    if max_upload_mb < 1:
-        raise ValueError("MAX_UPLOAD_MB must be a positive integer")
 
     app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
         "DATABASE_URL",
         "postgresql://postgres:postgres@localhost:5432/docqa",
     )
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-    app.config["MAX_CONTENT_LENGTH"] = max_upload_mb * 1024 * 1024
+    app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
     db.init_app(app)
 
@@ -58,15 +56,14 @@ def create_app():
         },
     )
 
-    with app.app_context():
-        db.create_all()
+    # Schema is managed by Alembic – do not call create_all()
 
     @app.errorhandler(413)
     def request_too_large(error):
         return jsonify(
             {
                 "error": "file_too_large",
-                "message": f"Uploaded file exceeds the {max_upload_mb} MB limit.",
+                "message": f"Uploaded file exceeds the {MAX_UPLOAD_MB} MB limit.",
             }
         ), 413
 
@@ -150,6 +147,43 @@ def create_app():
                 ]
             }
         ), 200
+
+    @app.delete("/api/documents/<int:document_id>")
+    def delete_document(document_id):
+        document = Document.query.get(document_id)
+
+        if document is None:
+            return jsonify(
+                {
+                    "error": "not_found",
+                    "message": f"Document with id {document_id} was not found.",
+                }
+            ), 404
+
+        try:
+            filename = document.filename
+            db.session.delete(document)  # cascades to chunks
+            db.session.commit()
+
+            logger.info("Deleted document '%s' (id=%s)", filename, document_id)
+
+            return jsonify(
+                {
+                    "message": "Document deleted successfully.",
+                    "id": document_id,
+                    "filename": filename,
+                }
+            ), 200
+
+        except Exception:
+            db.session.rollback()
+            logger.exception("Failed to delete document id=%s", document_id)
+            return jsonify(
+                {
+                    "error": "delete_failed",
+                    "message": "The document could not be deleted.",
+                }
+            ), 500
 
     @app.post("/api/upload")
     def upload():
