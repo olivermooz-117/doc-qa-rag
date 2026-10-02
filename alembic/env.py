@@ -23,8 +23,8 @@ database_url = os.getenv("DATABASE_URL")
 if not database_url:
     raise RuntimeError("DATABASE_URL is not set")
 
-# SQLAlchemy 2.0 + psycopg2 style URL is fine
-config.set_main_option("sqlalchemy.url", database_url)
+# Alembic's ConfigParser requires literal percent signs to be escaped.
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 target_metadata = db.metadata
 
