@@ -70,6 +70,18 @@ def test_cors_uses_configured_origins(monkeypatch, test_database_url):
         "https://docs.example"
     )
 
+    health_response = configured_app.test_client().options(
+        "/health",
+        headers={
+            "Origin": "https://docs.example",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert health_response.headers["Access-Control-Allow-Origin"] == (
+        "https://docs.example"
+    )
+
 
 def test_documents_returns_empty_list(client):
     response = client.get("/api/documents")
@@ -309,4 +321,3 @@ def test_ask_success(mock_ask, client):
     mock_ask.assert_called_once_with(
         "What is in the document?"
     )
-

@@ -52,7 +52,10 @@ def create_app():
         resources={
             r"/api/*": {
                 "origins": cors_origins,
-            }
+            },
+            r"/health": {
+                "origins": cors_origins,
+            },
         },
     )
 
